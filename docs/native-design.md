@@ -26,4 +26,4 @@
 
 ## 验证
 
-`scripts/Build-Native.ps1 -Test` 运行 Rust 自检并启动隔离的 Win32 验证，覆盖 Preview、Raw 写回、文件编码、窗口复用和退出状态。此前 WPF/WebView2 性能报告仅对对应历史可执行文件有效。
+`scripts/Build-Native.ps1 -Test` 运行 Rust 自检并启动隔离的 Win32 验证，覆盖 Preview、Raw 写回、文件编码、窗口复用和退出状态。

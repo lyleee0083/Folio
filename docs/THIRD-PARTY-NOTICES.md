@@ -7,7 +7,3 @@
 - **Codex terminal math recognition and layout**, OpenAI. Apache-2.0. The three formula modules are from commit `b07a3473813f101aeac446a012930aefe57e38f9` with Folio-specific integration adjustments. [Source](https://github.com/openai/codex/tree/b07a3473813f101aeac446a012930aefe57e38f9/codex-rs/tui/src/markdown_render/math) · [License](third-party-licenses/Codex-Math-LICENSE.txt) · [Notice](third-party-licenses/Codex-Math-NOTICE.txt).
 - **Lucide 1.74.0**, Lucide Icons and Contributors. ISC with separate Feather MIT attribution. Selected icon geometry is drawn with Direct2D. [Upstream](https://github.com/lucide-icons/lucide/tree/f8feea7a02ea461c9f2a4b4d851512aae6ec933f) · [License](third-party-licenses/Lucide-LICENSE.txt).
 - Cargo dependency versions and checksums are locked in [Cargo.lock](../src/rust/Cargo.lock).
-
-## Historical WPF build
-
-Earlier WPF builds used AvalonEdit, Markdig, Microsoft WebView2, KaTeX and highlight.js. Their notices and the earlier WPF-Math notices remain in [third-party-licenses](third-party-licenses/) for those versions.

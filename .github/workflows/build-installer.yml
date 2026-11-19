@@ -39,8 +39,7 @@ jobs:
       - name: Upload the MSI
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: Folio-Windows-x64
           path: generated/Folio-*-win-x64.msi
           if-no-files-found: error
-          compression-level: 0
+          archive: false
           retention-days: 30
