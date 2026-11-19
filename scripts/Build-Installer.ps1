@@ -11,10 +11,10 @@ if ($null -eq $versionLine) { throw 'The Cargo package must have a three-part nu
 $version = $versionLine.Matches[0].Groups[1].Value
 
 $wix = Join-Path $root 'work\tools\wix-5.0.2\wix.exe'
-$build = Join-Path $root 'work\installer-build'
-$extension = Join-Path $build '.wix\extensions\WixToolset.UI.wixext\5.0.2\wixext5\WixToolset.UI.wixext.dll'
-$executable = Join-Path $root 'Folio.exe'
-if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { throw 'Build Folio.exe before packaging.' }
+$build = Join-Path $root ('work\installer-build\' + [Guid]::NewGuid().ToString('N'))
+$extensionRoot = Join-Path $root 'work\installer-build'
+$extension = Join-Path $extensionRoot '.wix\extensions\WixToolset.UI.wixext\5.0.2\wixext5\WixToolset.UI.wixext.dll'
+$executable = Join-Path $build 'Folio.exe'
 
 $generated = Join-Path $root 'generated'
 New-Item -ItemType Directory -Path $generated,$build -Force | Out-Null
@@ -22,7 +22,11 @@ $name = 'Folio-' + $version + '-win-x64.msi'
 $candidate = Join-Path $build $name
 $destination = Join-Path $generated $name
 $previousDotnetRoot = $env:DOTNET_ROOT
+$previousRustFlags = $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS
 try {
+    $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = '-C target-feature=+crt-static'
+    & (Join-Path $PSScriptRoot 'Build-Native.ps1') -Target x86_64-pc-windows-msvc -DestinationExecutable $executable
+
     $localDotnet = Join-Path $root 'work\tools\dotnet'
     $dotnet = Join-Path $localDotnet 'dotnet.exe'
     if (Test-Path -LiteralPath $dotnet -PathType Leaf) {
@@ -36,7 +40,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Could not restore the WiX tool.' }
     }
     if ($RestoreTools -and -not (Test-Path -LiteralPath $extension -PathType Leaf)) {
-        Push-Location -LiteralPath $build
+        Push-Location -LiteralPath $extensionRoot
         try {
             & $wix extension add WixToolset.UI.wixext/5.0.2
             if ($LASTEXITCODE -ne 0) { throw 'Could not restore the WiX UI extension.' }
@@ -48,11 +52,12 @@ try {
         if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw ('Run with -RestoreTools to obtain: ' + $required) }
     }
     & $wix build (Join-Path $root 'src\installer\Folio.wxs') -arch x64 -culture zh-CN `
-        -ext $extension -d ('Version=' + $version) -d ('ProjectRoot=' + $root) `
+        -ext $extension -d ('Version=' + $version) -d ('ProjectRoot=' + $root) -d ('FolioExecutable=' + $executable) `
         -intermediatefolder (Join-Path $build 'obj') -out $candidate
     if ($LASTEXITCODE -ne 0) { throw 'WiX could not build the Folio installer.' }
 } finally {
     $env:DOTNET_ROOT = $previousDotnetRoot
+    $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = $previousRustFlags
 }
 
 Copy-Item -LiteralPath $candidate -Destination $destination -Force

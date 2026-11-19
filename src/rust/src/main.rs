@@ -136,23 +136,26 @@ struct App {
 impl App {
     fn new(store: Store) -> Result<Self> {
         let mut state = store.load();
+        let mut capacity = files::LIBRARY_BYTES_LIMIT;
         state.documents.retain_mut(|entry| {
             if entry.source_path.as_os_str().is_empty() || !files::is_markdown(&entry.source_path) {
                 return false;
             }
-            match files::open(&entry.source_path) {
-                Ok(mut current) => {
-                    current.id = entry.id.clone();
-                    current.reading_progress = entry.reading_progress;
-                    *entry = current;
-                    true
-                }
-                Err(error) => {
-                    error.kind() != std::io::ErrorKind::NotFound
-                        && entry.content.len() <= files::FILE_LIMIT
-                }
-            }
+            let Ok(mut current) = files::open(&entry.source_path) else {
+                return false;
+            };
+            let Some(remaining) = capacity.checked_sub(current.content.len()) else {
+                return false;
+            };
+            capacity = remaining;
+            current.id = entry.id.clone();
+            current.reading_progress = entry.reading_progress;
+            *entry = current;
+            true
         });
+        // Rewrite legacy reading state without cached source before showing it.
+        let _ = store.save(&state, false);
+        let _ = store.migrate_backup();
         let active = state
             .active_id
             .as_ref()

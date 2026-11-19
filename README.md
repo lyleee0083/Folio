@@ -16,13 +16,16 @@ Folio 是 Windows 10／11 x64 的原生 GFM Markdown 预览和源码编辑工具
 
 ## 构建
 
-在 Windows 上使用 Rust 和 Visual Studio MSVC 工具链编译。生成 MSI 需要 .NET SDK 9 或以上版本，以还原 WiX 构建工具。
+在 Windows 上使用 Rust 和 Visual Studio MSVC 工具链编译。生成 MSI 需要 .NET SDK 9 或以上版本，以还原 WiX 构建工具。安装包脚本会用 MSVC 重新构建它要打包的程序。
 
 ```powershell
-.\scripts\Build-Native.ps1
 .\scripts\Build-Installer.ps1 -RestoreTools
 ```
 
 GitHub Actions 的 [Build Folio Installer](https://github.com/lyleee0083/Folio/actions/workflows/build-installer.yml) 支持手动构建。成功后可在该次运行的 **Artifacts** 直接下载 `Folio-版本-win-x64.msi`。MSI 作为构建产物存放。
 
 [第三方声明](docs/THIRD-PARTY-NOTICES.md)
+
+阅读状态仅保存窗口设置、文档路径和位置。保存源码前会检查原文件并暂存恢复副本；系统中断后如需找回原内容，可在原文件所在目录检查 `.folio-*.recovery.bak`。
+
+Folio 自有源码保留版权并公开可阅。第三方内容适用各自许可，详见 [LICENSE](LICENSE) 和第三方声明。

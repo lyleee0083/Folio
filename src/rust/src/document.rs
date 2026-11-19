@@ -215,11 +215,11 @@ fn flow<'a>(node: &'a AstNode<'a>, context: &mut Context, result: &mut Document)
                 .and_then(|value| value.strip_suffix("---"));
             let data = yaml
                 .filter(|value| value.len() <= 8192)
-                .and_then(|value| yaml_rust::YamlLoader::load_from_str(value).ok());
+                .and_then(|value| yaml_rust2::YamlLoader::load_from_str(value).ok());
             let map = data
                 .as_ref()
                 .and_then(|docs| docs.first())
-                .and_then(yaml_rust::Yaml::as_hash);
+                .and_then(yaml_rust2::Yaml::as_hash);
             if let Some(map) = map {
                 let rows = map
                     .iter()
@@ -404,8 +404,8 @@ fn slug(title: &str) -> String {
         .collect()
 }
 
-fn yaml_display(value: &yaml_rust::Yaml, depth: usize) -> Option<String> {
-    use yaml_rust::Yaml::*;
+fn yaml_display(value: &yaml_rust2::Yaml, depth: usize) -> Option<String> {
+    use yaml_rust2::Yaml::*;
     if depth > 3 {
         return None;
     }

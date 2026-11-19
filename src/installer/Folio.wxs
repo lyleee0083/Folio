@@ -14,7 +14,8 @@
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="INSTALLFOLDER" Name="Folio">
         <Component Id="FolioProgram" Guid="B4731B9B-B3B7-4683-BF37-E58A5F1B58F5">
-          <File Id="FolioExe" Source="$(var.ProjectRoot)\Folio.exe" />
+          <File Id="FolioExe" Source="$(var.FolioExecutable)" />
+          <File Source="$(var.ProjectRoot)\LICENSE" />
           <File Source="$(var.ProjectRoot)\docs\THIRD-PARTY-NOTICES.md" />
           <Shortcut Id="FolioStartMenu" Directory="ProgramMenuFolder" Name="Folio"
                     Target="[#FolioExe]" WorkingDirectory="INSTALLFOLDER" />

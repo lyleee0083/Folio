@@ -1,5 +1,6 @@
 param(
-    [ValidateSet('x86_64-pc-windows-msvc')][string]$Target
+    [ValidateSet('x86_64-pc-windows-msvc')][string]$Target,
+    [string]$DestinationExecutable
 )
 
 Set-StrictMode -Version Latest
@@ -7,6 +8,11 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $manifest = Join-Path $root 'src\rust\Cargo.toml'
 $rootExe = Join-Path $root 'Folio.exe'
+$publishingRoot = -not $DestinationExecutable
+$destination = $rootExe
+if ($DestinationExecutable) {
+    $destination = [IO.Path]::GetFullPath($DestinationExecutable)
+}
 $targetDir = Join-Path $root 'work\rust-build'
 $targetArgs = @()
 $buildDir = $targetDir
@@ -51,10 +57,10 @@ try {
 
     $candidate = Join-Path $buildDir 'release\Folio.exe'
 
-    Assert-RootExecutableAvailable
-    Copy-Item -LiteralPath $candidate -Destination $rootExe -Force
+    if ($publishingRoot) { Assert-RootExecutableAvailable }
+    Copy-Item -LiteralPath $candidate -Destination $destination -Force
     $expected = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash
-    $actual = (Get-FileHash -LiteralPath $rootExe -Algorithm SHA256).Hash
+    $actual = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
     if ($expected -ne $actual) { throw 'Folio delivery hash mismatch.' }
     Write-Output ('Folio.exe SHA-256 ' + $actual)
 } finally {

@@ -1,6 +1,7 @@
 [package]
 name = "folio"
-version = "0.0.1"
+version = "0.0.2"
+license-file = "../../LICENSE"
 edition = "2021"
 publish = false
 
@@ -20,10 +21,10 @@ serde_json = "1"
 sha2 = "0.10"
 similar = "2.7"
 svgtypes = "0.15"
-syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+inkjet = { version = "0.11.1", default-features = false, features = ["all_languages"] }
 unicode-segmentation = "1"
 unicode-width = "0.2"
-yaml-rust = "0.4"
+yaml-rust2 = { version = "0.13", default-features = false }
 windows = { version = "0.58", features = [
     "Foundation_Numerics",
     "Win32_Foundation",

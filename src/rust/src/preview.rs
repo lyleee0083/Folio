@@ -2,15 +2,15 @@ use crate::document::{plain, Body, Document, Span, Style};
 use crate::files::{self, Options};
 use comrak::nodes::TableAlignment;
 use image::{ImageReader, Limits, RgbaImage};
+use inkjet::{
+    constants::HIGHLIGHT_NAMES, tree_sitter_highlight::HighlightEvent, Highlighter, Language,
+};
 use percent_encoding::percent_decode_str;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::ops::Range;
 use std::path::{Component, Path};
 use std::sync::OnceLock;
-use syntect::{
-    easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet, util::LinesWithEndings,
-};
 use windows::core::{w, Result};
 use windows::Win32::Foundation::{BOOL, HWND};
 use windows::Win32::Graphics::Direct2D::{Common::*, *};
@@ -1183,41 +1183,75 @@ fn span(text: impl Into<String>) -> Span {
 }
 
 fn code_spans(text: &str, language: &str, dark: bool) -> Vec<(Span, Option<u32>)> {
-    static SYNTAX: OnceLock<(SyntaxSet, ThemeSet)> = OnceLock::new();
-    if language.is_empty() || language == "mermaid" || text.len() > 256 * 1024 {
-        return vec![(span(text), None)];
+    let plain = || vec![(span(text), None)];
+    if text.len() > 256 * 1024 {
+        return plain();
     }
-    let (syntaxes, themes) = SYNTAX.get_or_init(|| {
-        (
-            SyntaxSet::load_defaults_newlines(),
-            ThemeSet::load_defaults(),
-        )
-    });
-    let Some(syntax) = syntaxes.find_syntax_by_token(language) else {
-        return vec![(span(text), None)];
+    let language = language.to_ascii_lowercase();
+    let Some(language) = Language::from_token(match language.as_str() {
+        "shell" => "bash",
+        "yml" => "yaml",
+        other => other,
+    }) else {
+        return plain();
     };
-    let mut highlighter = HighlightLines::new(
-        syntax,
-        &themes.themes[if dark {
-            "base16-ocean.dark"
-        } else {
-            "InspiredGitHub"
-        }],
-    );
+
+    let mut highlighter = Highlighter::new();
+    let Ok(events) = highlighter.highlight_raw(language, &text) else {
+        return plain();
+    };
+    let mut colors = Vec::new();
     let mut result = Vec::new();
-    for line in LinesWithEndings::from(text) {
-        match highlighter.highlight_line(line, syntaxes) {
-            Ok(parts) => result.extend(parts.into_iter().map(|(style, text)| {
-                let color = style.foreground;
-                (
-                    span(text),
-                    Some((color.r as u32) << 16 | (color.g as u32) << 8 | color.b as u32),
-                )
-            })),
-            Err(_) => result.push((span(line), None)),
+    for event in events {
+        match event {
+            Ok(HighlightEvent::HighlightStart(kind)) => {
+                colors.push(
+                    HIGHLIGHT_NAMES
+                        .get(kind.0)
+                        .and_then(|name| code_color(name, dark)),
+                );
+            }
+            Ok(HighlightEvent::HighlightEnd) => {
+                colors.pop();
+            }
+            Ok(HighlightEvent::Source { start, end }) => {
+                let Some(part) = text.get(start..end) else {
+                    return plain();
+                };
+                result.push((span(part), colors.last().copied().flatten()));
+            }
+            Err(_) => return plain(),
         }
     }
     result
+}
+
+fn code_color(capture: &str, dark: bool) -> Option<u32> {
+    let category = capture.split('.').next()?;
+    let (light, dark_color) = match category {
+        "comment" => (0x627077, 0x9ca7b6),
+        "keyword" | "operator" => (0xa52354, 0xc694d1),
+        "string" | "character" | "escape" => (0x19663b, 0xa6c891),
+        "constant" | "number" | "boolean" => (0x0053a6, 0xe4ad78),
+        "function" | "constructor" => (0x6a398e, 0x86b5e8),
+        "type" | "tag" | "attribute" => (0x7a4a19, 0xe0c486),
+        _ => return None,
+    };
+    Some(if dark { dark_color } else { light })
+}
+
+#[cfg(test)]
+mod code_tests {
+    use super::code_spans;
+
+    #[test]
+    fn code_highlighting_preserves_unicode_and_source() {
+        let source = "fn main() { let text = \"Unicode: 中文\"; }\n";
+        let spans = code_spans(source, "Rust", false);
+        let restored: String = spans.iter().map(|(part, _)| part.text.as_str()).collect();
+        assert_eq!(restored, source);
+        assert!(spans.iter().any(|(_, color)| color.is_some()));
+    }
 }
 
 fn load_image(source: &Path, target: &str) -> Option<RgbaImage> {
