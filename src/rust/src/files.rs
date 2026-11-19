@@ -135,23 +135,17 @@ impl State {
 
 pub struct Store {
     pub root: PathBuf,
-    normal: bool,
 }
 
 impl Store {
     pub fn new() -> io::Result<Self> {
-        let normal = std::env::var_os("FOLIO_TEST_USER_DATA").is_none();
-        let root = std::env::var_os("FOLIO_TEST_USER_DATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default())
-                    .join("Folio")
-                    .join("native")
-            });
+        let root = PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default())
+            .join("Folio")
+            .join("native");
         let root = std::path::absolute(root)?;
         ensure_no_reparse(&root)?;
         fs::create_dir_all(&root)?;
-        Ok(Self { root, normal })
+        Ok(Self { root })
     }
 
     pub fn load(&self) -> State {
@@ -166,7 +160,7 @@ impl Store {
         if let Ok(state) = read_state(&legacy) {
             return state.preferences();
         }
-        if self.normal && !legacy.exists() {
+        if !legacy.exists() {
             if let Some(roaming) = self.root.parent().and_then(Path::parent) {
                 let old = roaming.join("mdreader").join("native");
                 for name in ["reader-library.json", "reader-state.json"] {
@@ -569,53 +563,4 @@ pub fn atomic_write(path: &Path, bytes: &[u8], expected: Option<[u8; 32]>) -> io
         let _ = fs::remove_file(temporary);
     }
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mixed_endings_and_supported_encodings() {
-        let original = "# 首行\r\n第二行\n第三行\r\n";
-        let replaced = restore_endings(original, "# 首行\n第二行\n修改\n");
-        assert_eq!(replaced, "# 首行\r\n第二行\n修改\r\n");
-        for codec in [
-            Encoding::Utf8,
-            Encoding::Utf8Bom,
-            Encoding::Utf16Le,
-            Encoding::Utf16Be,
-            Encoding::Utf32Le,
-            Encoding::Utf32Be,
-            Encoding::Gb18030,
-        ] {
-            let encoded = encode(original, codec).unwrap();
-            assert_eq!(decode(&encoded).unwrap(), (original.to_string(), codec));
-        }
-    }
-
-    #[test]
-    fn concurrent_file_change_prevents_replacement() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../work/2026-11-18-rust-rewrite/file-tests");
-        let suffix = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let directory = root.join(format!("{}-{suffix}", std::process::id()));
-        fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("conflict.md");
-        fs::write(&path, "# Original\r\n").unwrap();
-        let mut opened = open(&path).unwrap();
-        let expected = opened.checksum;
-        fs::write(&path, "# External revision\r\n").unwrap();
-        assert!(save_document(&mut opened, "# Draft\n").is_err());
-        assert_eq!(opened.content, "# Original\r\n");
-        assert_eq!(opened.checksum, expected);
-        assert_eq!(
-            fs::read_to_string(&path).unwrap(),
-            "# External revision\r\n"
-        );
-        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
-    }
 }

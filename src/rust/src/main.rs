@@ -1,10 +1,9 @@
-#![cfg_attr(not(test), windows_subsystem = "windows")]
+#![windows_subsystem = "windows"]
 
 mod document;
 mod files;
 mod icons;
 mod math;
-mod performance;
 mod platform;
 mod preview;
 mod raw;
@@ -17,7 +16,6 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
 use windows::core::{w, Result, PCWSTR};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
@@ -131,7 +129,6 @@ struct App {
     renderer: Renderer,
     icons: icons::Painter,
     queue: platform::LaunchQueue,
-    measurement: Option<performance::Measurement>,
 }
 
 impl App {
@@ -189,7 +186,6 @@ impl App {
             renderer: Renderer::new()?,
             icons: icons::Painter::new()?,
             queue: Default::default(),
-            measurement: None,
         })
     }
 
@@ -1320,38 +1316,6 @@ impl App {
         }
     }
 
-    unsafe fn advance_measurement(&mut self) {
-        let Some(run) = self.measurement.as_mut() else {
-            return;
-        };
-        let Some(step) = run.next() else {
-            if let Err(error) = run.finish() {
-                platform::error_dialog(self.window, error);
-            }
-            self.measurement = None;
-            let _ = PostMessageW(self.window, WM_CLOSE, WPARAM(0), LPARAM(0));
-            return;
-        };
-        if step.open {
-            self.import(&step.paths);
-        } else {
-            for path in step.paths {
-                let key = files::path_key(&path);
-                if let Some(index) = self
-                    .state
-                    .documents
-                    .iter()
-                    .position(|entry| files::path_key(&entry.source_path) == key)
-                {
-                    self.remember_progress();
-                    self.active = Some(index);
-                    self.refresh_list(true);
-                    self.load_active();
-                }
-            }
-        }
-    }
-
     unsafe fn link(&mut self, target: &str) {
         if let Some(anchor) = target.strip_prefix('#') {
             let anchor = percent_decode_str(anchor).decode_utf8_lossy();
@@ -1800,7 +1764,6 @@ unsafe extern "system" fn window_proc(
             }
         }
         WM_DROPFILES => app.import(&platform::drag_paths(HDROP(wparam.0 as *mut c_void))),
-        performance::WM_MEASUREMENT => app.advance_measurement(),
         WM_LAUNCH => {
             let queued = app
                 .queue
@@ -1919,19 +1882,6 @@ unsafe extern "system" fn preview_proc(
                 FillRect(paint.hdc, &bounds, app.surface);
             }
             let _ = EndPaint(hwnd, &paint);
-            if frame.is_ok() {
-                if let (Some(run), Some(index)) = (app.measurement.as_mut(), app.active) {
-                    let current = &app.state.documents[index].source_path;
-                    if run.presented(current, app.document.blocks.len()) {
-                        let _ = PostMessageW(
-                            app.window,
-                            performance::WM_MEASUREMENT,
-                            WPARAM(0),
-                            LPARAM(0),
-                        );
-                    }
-                }
-            }
         }
         WM_ERASEBKGND => return LRESULT(1),
         WM_DROPFILES => app.import(&platform::drag_paths(HDROP(wparam.0 as *mut c_void))),
@@ -2048,17 +1998,10 @@ unsafe extern "system" fn preview_proc(
     LRESULT(0)
 }
 
-fn run(process_started: Instant) -> Result<()> {
+fn run() -> Result<()> {
     let store =
         Store::new().map_err(|error| windows::core::Error::new(E_FAIL, error.to_string()))?;
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let measurement = performance::Measurement::parse(&args, &store.root, process_started)
-        .map_err(|error| windows::core::Error::new(E_FAIL, error.to_string()))?;
-    let paths = if measurement.is_none() {
-        platform::command_line_paths()
-    } else {
-        Vec::new()
-    };
+    let paths = platform::command_line_paths();
     let Election::Primary(_instance, pipe) = platform::elect(&store.root, &paths)? else {
         return Ok(());
     };
@@ -2164,11 +2107,7 @@ fn run(process_started: Instant) -> Result<()> {
             if !paths.is_empty() {
                 app.import(&paths);
             }
-            app.measurement = measurement;
             let _ = SetFocus(app.controls.preview);
-        }
-        if cell.borrow().measurement.is_some() {
-            let _ = PostMessageW(hwnd, performance::WM_MEASUREMENT, WPARAM(0), LPARAM(0));
         }
         let mut message = MSG::default();
         loop {
@@ -2196,7 +2135,7 @@ fn run(process_started: Instant) -> Result<()> {
 }
 
 fn main() {
-    if let Err(error) = run(Instant::now()) {
+    if let Err(error) = run() {
         platform::error_dialog(HWND::default(), error);
         std::process::exit(1);
     }

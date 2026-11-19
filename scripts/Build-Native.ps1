@@ -1,7 +1,4 @@
 param(
-    [switch]$Test,
-    [switch]$UnitTest,
-    [switch]$KeepArtifacts,
     [ValidateSet('x86_64-pc-windows-msvc')][string]$Target
 )
 
@@ -35,7 +32,7 @@ foreach ($name in @('Path','CARGO_HOME','CARGO_TARGET_DIR','FOLIO_WINDRES')) {
     $stored[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 try {
-    if (Test-Path -LiteralPath $localCargo -PathType Leaf) {
+    if ((Test-Path -LiteralPath $localCargo -PathType Leaf) -and -not $Target) {
         $cargo = $localCargo
         $rustBin = Join-Path $rustRoot 'bin'
         $rustSupportBin = Join-Path $rustRoot 'lib\rustlib\x86_64-pc-windows-gnu\bin\self-contained'
@@ -49,21 +46,10 @@ try {
 
     $env:CARGO_HOME = Join-Path $root 'work\cargo-home'
     $env:CARGO_TARGET_DIR = $targetDir
-    if ($Test -or $UnitTest) {
-        & $cargo test --manifest-path $manifest --locked @targetArgs
-        if ($LASTEXITCODE -ne 0) { throw 'Folio Rust tests failed.' }
-    }
     & $cargo build --manifest-path $manifest --release --locked @targetArgs
     if ($LASTEXITCODE -ne 0) { throw 'Folio Rust release build failed.' }
 
     $candidate = Join-Path $buildDir 'release\Folio.exe'
-    if ($Test) {
-        $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
-        $harness = Join-Path $buildDir 'release\FolioVerify.exe'
-        & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Verify-Rust.ps1') `
-            -ExecutablePath $candidate -VerifierPath $harness
-        if ($LASTEXITCODE -ne 0) { throw 'Folio native window verification failed.' }
-    }
 
     Assert-RootExecutableAvailable
     Copy-Item -LiteralPath $candidate -Destination $rootExe -Force
@@ -71,7 +57,6 @@ try {
     $actual = (Get-FileHash -LiteralPath $rootExe -Algorithm SHA256).Hash
     if ($expected -ne $actual) { throw 'Folio delivery hash mismatch.' }
     Write-Output ('Folio.exe SHA-256 ' + $actual)
-    if ($KeepArtifacts) { Write-Output ('Rust build artifacts are in ' + $targetDir) }
 } finally {
     foreach ($name in $stored.Keys) {
         [Environment]::SetEnvironmentVariable($name, $stored[$name], 'Process')

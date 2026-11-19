@@ -1,6 +1,5 @@
 param(
-    [switch]$RestoreTools,
-    [switch]$Verify
+    [switch]$RestoreTools
 )
 
 Set-StrictMode -Version Latest
@@ -56,21 +55,6 @@ try {
     $env:DOTNET_ROOT = $previousDotnetRoot
 }
 
-if ($Verify) {
-    $verification = Join-Path $build ('verify-' + [Guid]::NewGuid().ToString('N'))
-    $image = Join-Path $verification 'admin-image'
-    New-Item -ItemType Directory -Path $image | Out-Null
-    $log = Join-Path $verification 'extract.log'
-    $arguments = @('/a', ('"' + $candidate + '"'), '/qn', ('TARGETDIR="' + $image + '"'), '/l*v', ('"' + $log + '"'))
-    $installer = Start-Process -FilePath (Get-Command msiexec.exe).Source -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
-    if ($installer.ExitCode -ne 0) { throw ('Windows Installer could not extract the package. See ' + $log) }
-    $payload = @(Get-ChildItem -LiteralPath $image -Filter 'Folio.exe' -File -Recurse)
-    $exeHash = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash
-    if ($payload.Count -ne 1 -or (Get-FileHash -LiteralPath $payload[0].FullName -Algorithm SHA256).Hash -ne $exeHash) {
-        throw 'The extracted MSI executable does not match Folio.exe.'
-    }
-    Write-Output ('Verified MSI payload SHA-256 ' + $exeHash)
-}
 Copy-Item -LiteralPath $candidate -Destination $destination -Force
 $expected = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash
 $actual = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash

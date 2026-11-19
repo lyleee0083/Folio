@@ -11,8 +11,7 @@ Folio 是 Windows 10／11 x64 的原生 GFM Markdown 预览和源码编辑工具
 | [`preview.rs`](src/rust/src/preview.rs)、[`raw.rs`](src/rust/src/raw.rs) | Direct2D／DirectWrite 预览，以及 Win32 RichEdit 源码编辑、行号和语法着色 |
 | [`files.rs`](src/rust/src/files.rs)、[`platform.rs`](src/rust/src/platform.rs) | 文件编码、换行保留、保存冲突、设置和 Windows 平台集成 |
 | [`src/rust/assets/`](src/rust/assets)、[`build.rs`](src/rust/build.rs) | 程序图标、Windows 清单和资源嵌入 |
-| [`verify.rs`](src/rust/src/bin/verify.rs)、[`performance.rs`](src/rust/src/performance.rs) | 原生窗口验证和渲染计时 |
-| [`src/installer/`](src/installer)、[`scripts/`](scripts) | MSI 定义、构建和验证脚本 |
+| [`src/installer/`](src/installer)、[`scripts/`](scripts) | MSI 定义和构建脚本 |
 | [`.github/workflows/`](.github/workflows) | 手动触发的 Windows x64 构建流程 |
 
 ## 构建
@@ -20,10 +19,10 @@ Folio 是 Windows 10／11 x64 的原生 GFM Markdown 预览和源码编辑工具
 在 Windows 上使用 Rust 和 Visual Studio MSVC 工具链编译。生成 MSI 需要 .NET SDK 9 或以上版本，以还原 WiX 构建工具。
 
 ```powershell
-.\scripts\Build-Native.ps1 -Test
-.\scripts\Build-Installer.ps1 -RestoreTools -Verify
+.\scripts\Build-Native.ps1
+.\scripts\Build-Installer.ps1 -RestoreTools
 ```
 
 GitHub Actions 的 [Build Folio Installer](https://github.com/lyleee0083/Folio/actions/workflows/build-installer.yml) 支持手动构建。成功后可在该次运行的 **Artifacts** 直接下载 `Folio-版本-win-x64.msi`。MSI 作为构建产物存放。
 
-[原生架构](docs/native-design.md) · [第三方声明](docs/THIRD-PARTY-NOTICES.md)
+[第三方声明](docs/THIRD-PARTY-NOTICES.md)
