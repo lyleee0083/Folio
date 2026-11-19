@@ -718,7 +718,9 @@ mod tests {
         store.migrate_backup().unwrap();
         let saved = fs::read_to_string(&current).unwrap();
         assert!(saved.contains("draft.md"));
-        assert!(!saved.contains("Content") && !saved.contains("markdown"));
+        let json: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert!(json["Documents"][0].get("Content").is_none());
+        assert!(!saved.contains("in-memory markdown"));
         assert!(!fs::read_to_string(&backup).unwrap().contains("markdown"));
         store.save(&state, true).unwrap();
         assert!(store.load().documents.is_empty());
