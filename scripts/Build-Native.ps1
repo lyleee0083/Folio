@@ -1,7 +1,8 @@
 param(
     [switch]$Test,
     [switch]$UnitTest,
-    [switch]$KeepArtifacts
+    [switch]$KeepArtifacts,
+    [ValidateSet('x86_64-pc-windows-msvc')][string]$Target
 )
 
 Set-StrictMode -Version Latest
@@ -10,6 +11,12 @@ $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $manifest = Join-Path $root 'src\rust\Cargo.toml'
 $rootExe = Join-Path $root 'Folio.exe'
 $targetDir = Join-Path $root 'work\rust-build'
+$targetArgs = @()
+$buildDir = $targetDir
+if ($Target) {
+    $targetArgs = @('--target', $Target)
+    $buildDir = Join-Path $targetDir $Target
+}
 $rustRoot = Join-Path $root 'work\tools\rust-1.100.0-gnu'
 $localCargo = Join-Path $rustRoot 'bin\cargo.exe'
 $binutils = Join-Path $root 'work\tools\mingw64-binutils\mingw64\bin'
@@ -43,16 +50,18 @@ try {
     $env:CARGO_HOME = Join-Path $root 'work\cargo-home'
     $env:CARGO_TARGET_DIR = $targetDir
     if ($Test -or $UnitTest) {
-        & $cargo test --manifest-path $manifest --locked
+        & $cargo test --manifest-path $manifest --locked @targetArgs
         if ($LASTEXITCODE -ne 0) { throw 'Folio Rust tests failed.' }
     }
-    & $cargo build --manifest-path $manifest --release --locked
+    & $cargo build --manifest-path $manifest --release --locked @targetArgs
     if ($LASTEXITCODE -ne 0) { throw 'Folio Rust release build failed.' }
 
-    $candidate = Join-Path $targetDir 'release\Folio.exe'
+    $candidate = Join-Path $buildDir 'release\Folio.exe'
     if ($Test) {
         $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
-        & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Verify-Rust.ps1') -ExecutablePath $candidate
+        $harness = Join-Path $buildDir 'release\FolioVerify.exe'
+        & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Verify-Rust.ps1') `
+            -ExecutablePath $candidate -VerifierPath $harness
         if ($LASTEXITCODE -ne 0) { throw 'Folio native window verification failed.' }
     }
 

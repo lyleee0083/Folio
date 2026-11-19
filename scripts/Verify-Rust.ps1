@@ -1,10 +1,13 @@
-param([string]$ExecutablePath = (Join-Path $PSScriptRoot '..\Folio.exe'))
+param(
+    [string]$ExecutablePath = (Join-Path $PSScriptRoot '..\Folio.exe'),
+    [string]$VerifierPath = (Join-Path $PSScriptRoot '..\work\rust-build\release\FolioVerify.exe')
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $exe = (Resolve-Path -LiteralPath $ExecutablePath).Path
-$harness = Join-Path $root 'work\rust-build\release\FolioVerify.exe'
+$harness = [IO.Path]::GetFullPath($VerifierPath)
 if (-not (Test-Path -LiteralPath $harness -PathType Leaf)) {
     throw 'FolioVerify.exe is missing. Build the Rust release before running verification.'
 }

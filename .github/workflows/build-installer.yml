@@ -15,6 +15,7 @@ jobs:
         shell: powershell
     env:
       RUSTUP_TOOLCHAIN: 1.100.0-x86_64-pc-windows-msvc
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1
     steps:
@@ -24,7 +25,15 @@ jobs:
       - name: Install Rust toolchain
         run: rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal
       - name: Compile Folio and run Rust tests
-        run: .\scripts\Build-Native.ps1 -UnitTest
+        run: .\scripts\Build-Native.ps1 -UnitTest -Target x86_64-pc-windows-msvc
+      - name: Check for Visual C++ runtime DLL dependencies
+        run: |
+          $reader = Join-Path $env:ProgramFiles 'LLVM\bin\llvm-readobj.exe'
+          $imports = & $reader --coff-imports .\Folio.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect Folio.exe imports.' }
+          if ($imports -match '(?i)\b(vcruntime|msvcp|concrt)[0-9_a-z]+\.dll\b') {
+            throw 'Folio.exe requires the separate Visual C++ Redistributable.'
+          }
       - name: Build and verify the Windows installer
         run: .\scripts\Build-Installer.ps1 -RestoreTools -Verify
       - name: Upload the MSI
