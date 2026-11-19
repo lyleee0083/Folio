@@ -44,8 +44,8 @@ impl Measurement {
         let project = exe
             .ancestors()
             .find(|candidate| {
-                candidate.join("Folio.cmd").is_file()
-                    && candidate.join("src/rust/Cargo.toml").is_file()
+                candidate.join("src/rust/Cargo.toml").is_file()
+                    && candidate.join("src/installer/Folio.wxs").is_file()
             })
             .ok_or_else(|| {
                 io::Error::other("Could not find the Folio project for a benchmark run")
