@@ -18,7 +18,12 @@ fn main() -> io::Result<()> {
     entry(&mut records, 0, 0, &[]);
     let icon_atlas = icons(&contents, &mut records)?;
     entry(&mut records, 14, 1, &icon_atlas);
-    entry(&mut records, 24, 1, &fs::read("assets/folio.manifest")?);
+    // Windows assembly identities require four version components.
+    let manifest = fs::read_to_string("assets/folio.manifest")?.replace(
+        "@FOLIO_ASSEMBLY_VERSION@",
+        concat!(env!("CARGO_PKG_VERSION"), ".0"),
+    );
+    entry(&mut records, 24, 1, manifest.as_bytes());
     fs::write(&resource, records)?;
     let linked = if target == "gnu" {
         let tool = env::var_os("FOLIO_WINDRES").unwrap_or_else(|| "windres.exe".into());
