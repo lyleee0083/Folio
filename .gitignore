@@ -1,0 +1,6 @@
+work/
+outputs/
+generated/
+待删除/
+Folio.exe
+src/rust/target/

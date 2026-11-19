@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Folio" Manufacturer="Folio" Version="$(var.Version)"
+           Language="2052" Codepage="936" Scope="perUser"
+           UpgradeCode="9C4D881D-7661-45E9-9B3B-52ABC82EC5D1">
+    <MajorUpgrade AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="当前用户已安装更新版本的 Folio。" />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="Folio.ico" SourceFile="$(var.ProjectRoot)\src\rust\assets\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="Folio.ico" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" Sequence="execute" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="Folio">
+        <Component Id="FolioProgram" Guid="B4731B9B-B3B7-4683-BF37-E58A5F1B58F5">
+          <File Id="FolioExe" Source="$(var.ProjectRoot)\Folio.exe" />
+          <File Source="$(var.ProjectRoot)\docs\THIRD-PARTY-NOTICES.md" />
+          <Shortcut Id="FolioStartMenu" Directory="ProgramMenuFolder" Name="Folio"
+                    Target="[#FolioExe]" WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder Id="RemoveFolioFolder" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\Folio\Installer" Name="Installed"
+                         Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+        <Directory Id="FolioLicenses" Name="third-party-licenses">
+          <Component Id="FolioThirdPartyNotices" Guid="F6F2443E-1298-4F32-9A9C-20952DD25B5F">
+            <File Source="$(var.ProjectRoot)\docs\third-party-licenses\Codex-Math-LICENSE.txt" />
+            <File Source="$(var.ProjectRoot)\docs\third-party-licenses\Codex-Math-NOTICE.txt" />
+            <File Source="$(var.ProjectRoot)\docs\third-party-licenses\Lucide-LICENSE.txt" />
+            <RemoveFolder Id="RemoveFolioLicenses" On="uninstall" />
+            <RegistryValue Root="HKCU" Key="Software\Folio\Installer" Name="Notices"
+                           Type="integer" Value="1" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="FolioApplication" Title="Folio">
+      <ComponentRef Id="FolioProgram" />
+      <ComponentRef Id="FolioThirdPartyNotices" />
+    </Feature>
+
+    <UI>
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Microsoft YaHei UI" Size="9" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Microsoft YaHei UI" Size="14" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Microsoft YaHei UI" Size="10" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <Dialog Id="FolioInstall" Title="Folio 安装程序" Width="320" Height="184">
+        <Control Id="Heading" Type="Text" X="20" Y="20" Width="280" Height="24"
+                 Text="{\WixUI_Font_Bigger}安装 Folio" />
+        <Control Id="Description" Type="Text" X="22" Y="55" Width="274" Height="42"
+                 Text="Folio 将安装到当前 Windows 用户，并添加到开始菜单。" />
+        <Control Id="Location" Type="Text" X="22" Y="105" Width="276" Height="28"
+                 Text="[INSTALLFOLDER]" NoPrefix="yes" />
+        <Control Id="Separator" Type="Line" X="0" Y="143" Width="320" Height="0" />
+        <Control Id="Install" Type="PushButton" X="160" Y="155" Width="65" Height="19"
+                 Text="安装" Default="yes">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="237" Y="155" Width="65" Height="19"
+                 Text="取消" Cancel="yes">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="MaintenanceWelcomeDlg" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" />
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" />
+      <InstallUISequence>
+        <Show Dialog="FolioInstall" Before="ProgressDlg" Condition="NOT Installed" />
+      </InstallUISequence>
+    </UI>
+    <UIRef Id="WixUI_Common" />
+  </Package>
+</Wix>
