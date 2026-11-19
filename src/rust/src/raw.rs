@@ -162,6 +162,13 @@ pub unsafe fn highlight(control: HWND, dark: bool) {
     let Ok(_) = doc.Undo(tomSuspend.0) else {
         return;
     };
+    let event_mask = super::send(control, EM_GETEVENTMASK, 0, 0);
+    super::send(
+        control,
+        EM_SETEVENTMASK,
+        0,
+        event_mask & !(ENM_CHANGE as isize),
+    );
     let _ = doc.Freeze();
     let dirty = super::send(control, EM_GETMODIFY, 0, 0);
     let mut selection = CHARRANGE::default();
@@ -207,5 +214,6 @@ pub unsafe fn highlight(control: HWND, dark: bool) {
     super::send(control, EM_SETMODIFY, dirty as usize, 0);
     let _ = doc.Unfreeze();
     let _ = doc.Undo(tomResume.0);
+    super::send(control, EM_SETEVENTMASK, 0, event_mask);
     super::invalidate(control);
 }

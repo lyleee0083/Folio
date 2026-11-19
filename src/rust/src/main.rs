@@ -43,6 +43,7 @@ const GUTTER: PCWSTR = w!("FolioRawLineNumbers");
 const FILTER_HINT: &str = "筛选文档";
 const TIMER: usize = 1;
 const RAW_COLOR_TIMER: usize = 2;
+const WM_RAW_CHANGED: u32 = WM_APP + 2;
 const OPEN: u16 = 10;
 const FOLDER: u16 = 11;
 const RAW: u16 = 12;
@@ -123,6 +124,7 @@ struct App {
     pending_link: Option<String>,
     raw_query: String,
     editor_base: String,
+    editor_dirty: bool,
     preview_size: (i32, i32),
     document: document::Document,
     page: Page,
@@ -180,6 +182,7 @@ impl App {
             pending_link: None,
             raw_query: String::new(),
             editor_base: String::new(),
+            editor_dirty: false,
             preview_size: (1, 1),
             document: document::Document::default(),
             page: Page::default(),
@@ -694,6 +697,7 @@ impl App {
     unsafe fn load_active(&mut self) {
         self.raw = false;
         self.editor_base.clear();
+        self.editor_dirty = false;
         self.raw_lines = raw::LineIndex::new("");
         set_text(self.controls.editor, "");
         self.state.active_id = self
@@ -844,6 +848,7 @@ impl App {
             return;
         }
         set_text(self.controls.editor, &self.editor_base);
+        self.editor_dirty = false;
         self.raw_lines = raw::LineIndex::new(&self.editor_base);
         raw::space_lines(self.controls.editor);
         self.raw_colors();
@@ -867,8 +872,14 @@ impl App {
         self.update_raw_cursor();
     }
 
-    unsafe fn dirty(&self) -> bool {
-        self.raw && send(self.controls.editor, EM_GETMODIFY, 0, 0) != 0
+    unsafe fn raw_changed(&mut self) {
+        let text = files::normalize_source(&get_text(self.controls.editor));
+        self.editor_dirty = text != self.editor_base;
+        self.raw_lines = raw::LineIndex::new(&text);
+        invalidate(self.controls.gutter);
+        SetTimer(self.window, RAW_COLOR_TIMER, 300, None);
+        self.sync_controls();
+        self.update_raw_cursor();
     }
 
     unsafe fn save_raw(&mut self) -> bool {
@@ -876,7 +887,8 @@ impl App {
             return true;
         };
         let text = files::normalize_source(&get_text(self.controls.editor));
-        if text == self.editor_base {
+        self.editor_dirty = text != self.editor_base;
+        if !self.editor_dirty {
             send(self.controls.editor, EM_SETMODIFY, 0, 0);
             self.sync_controls();
             return true;
@@ -884,6 +896,7 @@ impl App {
         match files::save_document(&mut self.state.documents[index], &text) {
             Ok(()) => {
                 self.editor_base = text;
+                self.editor_dirty = false;
                 send(self.controls.editor, EM_SETMODIFY, 0, 0);
                 self.sync_controls();
                 self.note("已保存到原文件");
@@ -891,6 +904,7 @@ impl App {
                 true
             }
             Err(error) => {
+                self.sync_controls();
                 platform::error_dialog(self.window, error);
                 false
             }
@@ -898,8 +912,7 @@ impl App {
     }
 
     unsafe fn confirm_leave(&mut self) -> bool {
-        if !self.dirty()
-            || files::normalize_source(&get_text(self.controls.editor)) == self.editor_base
+        if !self.raw || files::normalize_source(&get_text(self.controls.editor)) == self.editor_base
         {
             return true;
         }
@@ -922,7 +935,7 @@ impl App {
     unsafe fn sync_controls(&self) {
         let c = &self.controls;
         let has = self.active.is_some();
-        let dirty = self.dirty();
+        let dirty = self.raw && self.editor_dirty;
         let title = self
             .active
             .map(|index| self.state.documents[index].name.as_str())
@@ -945,7 +958,10 @@ impl App {
                     invalidate(*handle);
                 }
                 SAVE => {
-                    let _ = EnableWindow(*handle, dirty);
+                    if IsWindowEnabled(*handle).as_bool() != dirty {
+                        let _ = EnableWindow(*handle, dirty);
+                        invalidate(*handle);
+                    }
                 }
                 OUTLINE => {
                     let _ = EnableWindow(*handle, has && !self.raw);
@@ -1139,13 +1155,6 @@ impl App {
                 }
             }
             EDITOR if self.raw => {
-                if event as u32 == EN_CHANGE {
-                    let text = files::normalize_source(&get_text(self.controls.editor));
-                    self.raw_lines = raw::LineIndex::new(&text);
-                    invalidate(self.controls.gutter);
-                    SetTimer(self.window, RAW_COLOR_TIMER, 300, None);
-                }
-                self.sync_controls();
                 self.update_raw_cursor();
             }
             LIBRARY => {
@@ -1178,7 +1187,7 @@ impl App {
             }
             THEME => {
                 self.state.options.is_dark = !self.state.options.is_dark;
-                let was_modified = self.dirty();
+                let was_modified = send(self.controls.editor, EM_GETMODIFY, 0, 0);
                 self.update_theme();
                 if self.raw {
                     raw::highlight(self.controls.editor, self.state.options.is_dark);
@@ -1634,6 +1643,11 @@ unsafe extern "system" fn window_proc(
     if pointer == 0 {
         return DefWindowProcW(hwnd, message, wparam, lparam);
     }
+    if message == WM_COMMAND && wparam.0 as u16 == EDITOR && (wparam.0 >> 16) as u32 == EN_CHANGE {
+        // Read the final text after RichEdit returns from its synchronous notification.
+        PostMessageW(hwnd, WM_RAW_CHANGED, WPARAM(0), LPARAM(0)).ok();
+        return LRESULT(0);
+    }
     let cell = &*(pointer as *const RefCell<App>);
     let Ok(mut app) = cell.try_borrow_mut() else {
         if message == WM_CLOSE {
@@ -1780,6 +1794,7 @@ unsafe extern "system" fn window_proc(
                 app.import(&files);
             }
         }
+        WM_RAW_CHANGED if app.raw => app.raw_changed(),
         WM_TIMER if wparam.0 == TIMER => {
             let _ = KillTimer(hwnd, TIMER);
             app.remember_progress();
