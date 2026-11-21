@@ -21,6 +21,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, LoadLibraryW};
+use windows::Win32::System::Shutdown::{ShutdownBlockReasonCreate, ShutdownBlockReasonDestroy};
 use windows::Win32::System::SystemServices::{SS_ENDELLIPSIS, SS_PATHELLIPSIS, SS_RIGHT};
 use windows::Win32::UI::Controls::RichEdit::{
     CFM_COLOR, CHARFORMATW, CHARRANGE, EM_EXGETSEL, EM_EXSETSEL, EM_SETBKGNDCOLOR,
@@ -690,7 +691,6 @@ impl App {
                 }
                 page.set_scroll(page.maximum_scroll() * progress.clamp(0., 1.) as f32);
                 self.page = page;
-                self.renderer.clear_document_images();
                 self.update_scroll();
             }
             Err(error) => self.note(&format!("无法排版：{error}")),
@@ -698,6 +698,7 @@ impl App {
     }
 
     unsafe fn load_active(&mut self) {
+        self.renderer.clear_document_images();
         self.raw = false;
         self.editor_base.clear();
         self.editor_dirty = false;
@@ -768,9 +769,9 @@ impl App {
         }
     }
 
-    unsafe fn import(&mut self, paths: &[PathBuf]) {
+    unsafe fn import(&mut self, paths: &[PathBuf]) -> bool {
         if paths.is_empty() || !self.confirm_leave() {
-            return;
+            return false;
         }
         self.remember_progress();
         let current = self.active.map(|i| self.state.documents[i].id.clone());
@@ -815,6 +816,7 @@ impl App {
             format!("已打开 {count} 份文档")
         });
         self.schedule_save();
+        count != 0
     }
 
     unsafe fn toggle_raw(&mut self) {
@@ -914,9 +916,12 @@ impl App {
         }
     }
 
+    unsafe fn has_unsaved_edits(&self) -> bool {
+        self.raw && files::normalize_source(&get_text(self.controls.editor)) != self.editor_base
+    }
+
     unsafe fn confirm_leave(&mut self) -> bool {
-        if !self.raw || files::normalize_source(&get_text(self.controls.editor)) == self.editor_base
-        {
+        if !self.has_unsaved_edits() {
             return true;
         }
         let prompt = wide("当前文档有未保存的修改。\n\n是：保存　否：放弃　取消：继续编辑");
@@ -1126,7 +1131,9 @@ impl App {
     unsafe fn command(&mut self, id: u16, event: u16) {
         match id {
             OPEN | FOLDER => match platform::choose_files(self.window, id == FOLDER) {
-                Ok(paths) => self.import(&paths),
+                Ok(paths) => {
+                    self.import(&paths);
+                }
                 Err(e) => platform::error_dialog(self.window, e),
             },
             RAW => self.toggle_raw(),
@@ -1328,19 +1335,23 @@ impl App {
         }
     }
 
+    unsafe fn jump_anchor(&mut self, anchor: &str) {
+        let anchor = percent_decode_str(anchor).decode_utf8_lossy();
+        if let Some(heading) = self
+            .document
+            .headings
+            .iter()
+            .find(|heading| anchor == heading.id)
+        {
+            self.page.jump(heading.block);
+            self.update_scroll();
+            self.schedule_save();
+        }
+    }
+
     unsafe fn link(&mut self, target: &str) {
         if let Some(anchor) = target.strip_prefix('#') {
-            let anchor = percent_decode_str(anchor).decode_utf8_lossy();
-            if let Some(heading) = self
-                .document
-                .headings
-                .iter()
-                .find(|heading| anchor == heading.id)
-            {
-                self.page.jump(heading.block);
-                self.update_scroll();
-                self.schedule_save();
-            }
+            self.jump_anchor(anchor);
             return;
         }
         let scheme = target
@@ -1359,10 +1370,18 @@ impl App {
             let Some(index) = self.active else {
                 return;
             };
-            let relative = percent_decode_str(target.split(['#', '?']).next().unwrap_or_default())
-                .decode_utf8_lossy();
+            let (target, anchor) = target
+                .split_once('#')
+                .map_or((target, None), |(path, fragment)| (path, Some(fragment)));
+            let target = target.split_once('?').map_or(target, |(path, _)| path);
+            let relative = percent_decode_str(target).decode_utf8_lossy();
             let path = Path::new(relative.as_ref());
-            if path.is_absolute() {
+            if path.has_root()
+                || matches!(
+                    path.components().next(),
+                    Some(std::path::Component::Prefix(_))
+                )
+            {
                 return;
             }
             if let Some(path) = self.state.documents[index]
@@ -1371,7 +1390,11 @@ impl App {
                 .map(|base| base.join(path))
                 .filter(|file| files::is_markdown(file))
             {
-                self.import(&[path]);
+                if self.import(&[path]) {
+                    if let Some(anchor) = anchor {
+                        self.jump_anchor(anchor);
+                    }
+                }
             }
         }
     }
@@ -1653,6 +1676,10 @@ unsafe extern "system" fn window_proc(
     }
     let cell = &*(pointer as *const RefCell<App>);
     let Ok(mut app) = cell.try_borrow_mut() else {
+        if message == WM_QUERYENDSESSION {
+            let _ = ShutdownBlockReasonCreate(hwnd, w!("Folio 正在处理文档，请先返回 Folio。"));
+            return LRESULT(0);
+        }
         if message == WM_CLOSE {
             return LRESULT(0);
         }
@@ -1780,7 +1807,9 @@ unsafe extern "system" fn window_proc(
                 return LRESULT(1);
             }
         }
-        WM_DROPFILES => app.import(&platform::drag_paths(HDROP(wparam.0 as *mut c_void))),
+        WM_DROPFILES => {
+            app.import(&platform::drag_paths(HDROP(wparam.0 as *mut c_void)));
+        }
         WM_LAUNCH => {
             let queued = app
                 .queue
@@ -1809,6 +1838,23 @@ unsafe extern "system" fn window_proc(
             let _ = KillTimer(hwnd, RAW_COLOR_TIMER);
             if app.raw {
                 raw::highlight(app.controls.editor, app.state.options.is_dark);
+            }
+        }
+        WM_QUERYENDSESSION => {
+            if app.has_unsaved_edits() {
+                let _ = ShutdownBlockReasonCreate(
+                    hwnd,
+                    w!("Folio 有未保存的编辑，请先保存或放弃修改。"),
+                );
+                return LRESULT(0);
+            }
+            return LRESULT(1);
+        }
+        WM_ENDSESSION => {
+            let _ = ShutdownBlockReasonDestroy(hwnd);
+            if wparam.0 != 0 {
+                let _ = KillTimer(hwnd, TIMER);
+                let _ = app.store.save(&app.state, true);
             }
         }
         WM_CLOSE => {
@@ -1902,7 +1948,9 @@ unsafe extern "system" fn preview_proc(
             let _ = EndPaint(hwnd, &paint);
         }
         WM_ERASEBKGND => return LRESULT(1),
-        WM_DROPFILES => app.import(&platform::drag_paths(HDROP(wparam.0 as *mut c_void))),
+        WM_DROPFILES => {
+            app.import(&platform::drag_paths(HDROP(wparam.0 as *mut c_void)));
+        }
         WM_VSCROLL => {
             let command = SCROLLBAR_COMMAND(wparam.0 as u16 as i32);
             let prior = app.page.scroll;

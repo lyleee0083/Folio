@@ -242,14 +242,20 @@ pub fn ensure_no_reparse(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub fn read_bounded(path: &Path, maximum: usize) -> io::Result<Vec<u8>> {
+pub fn open_bounded(path: &Path, maximum: usize) -> io::Result<File> {
     ensure_no_reparse(path)?;
     let file = File::open(path)?;
     if file.metadata()?.len() > maximum as u64 {
         return Err(io::Error::other("文件超过大小限制"));
     }
+    Ok(file)
+}
+
+pub fn read_bounded(path: &Path, maximum: usize) -> io::Result<Vec<u8>> {
     let mut result = Vec::new();
-    file.take(maximum as u64 + 1).read_to_end(&mut result)?;
+    open_bounded(path, maximum)?
+        .take(maximum as u64 + 1)
+        .read_to_end(&mut result)?;
     if result.len() > maximum {
         return Err(io::Error::other("文件超过大小限制"));
     }

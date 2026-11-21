@@ -6,11 +6,11 @@ use inkjet::{
     constants::HIGHLIGHT_NAMES, tree_sitter_highlight::HighlightEvent, Highlighter, Language,
 };
 use percent_encoding::percent_decode_str;
-use std::collections::HashMap;
-use std::io::Cursor;
+use std::collections::{HashMap, VecDeque};
+use std::io::{BufReader, Cursor};
 use std::ops::Range;
-use std::path::{Component, Path};
-use std::sync::OnceLock;
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 use windows::core::{w, Result};
 use windows::Win32::Foundation::{BOOL, HWND};
 use windows::Win32::Graphics::Direct2D::{Common::*, *};
@@ -37,12 +37,18 @@ fn rgb(hex: u32) -> D2D1_COLOR_F {
     }
 }
 
+const IMAGE_SOURCE_LIMIT: usize = 128;
+const IMAGE_INPUT_LIMIT: usize = 16 * 1024 * 1024;
+const IMAGE_DIMENSION_LIMIT: u32 = 4096;
+const IMAGE_BITMAP_DIMENSION: u32 = 1024;
+const IMAGE_CACHE_LIMIT: usize = 8;
+
 pub struct Renderer {
     factory: ID2D1Factory,
     pub write: IDWriteFactory,
     surface: Option<ID2D1HwndRenderTarget>,
     palette: HashMap<u32, ID2D1SolidColorBrush>,
-    images: HashMap<usize, ID2D1Bitmap>,
+    images: VecDeque<(Arc<PathBuf>, Option<ID2D1Bitmap>)>,
 }
 
 impl Renderer {
@@ -53,7 +59,7 @@ impl Renderer {
                 write: DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?,
                 surface: None,
                 palette: HashMap::new(),
-                images: HashMap::new(),
+                images: VecDeque::new(),
             })
         }
     }
@@ -104,6 +110,21 @@ impl Renderer {
 
     pub fn clear_document_images(&mut self) {
         self.images.clear();
+    }
+
+    fn image(&mut self, surface: &ID2D1RenderTarget, path: &Arc<PathBuf>) -> Option<ID2D1Bitmap> {
+        if let Some(index) = self.images.iter().position(|(key, _)| key == path) {
+            let item = self.images.remove(index).expect("cached image index");
+            let image = item.1.clone();
+            self.images.push_back(item);
+            return image;
+        }
+        if self.images.len() == IMAGE_CACHE_LIMIT {
+            self.images.pop_front();
+        }
+        let image = load_image(path).and_then(|data| bitmap(surface, data).ok());
+        self.images.push_back((Arc::clone(path), image.clone()));
+        image
     }
 
     pub fn draw(
@@ -250,22 +271,25 @@ impl Renderer {
                                     );
                                 }
                             }
-                            Item::Image(image) => {
-                                if !self.images.contains_key(&group.block) {
-                                    let bitmap = bitmap(&surface, &image.data)?;
-                                    self.images.insert(group.block, bitmap);
-                                }
-                                let area = rect(group.x, y, image.width, image.height);
-                                unsafe {
+                            Item::Image(image) => unsafe {
+                                if let Some(bitmap) = self.image(surface, &image.path) {
+                                    let area = rect(group.x, y, image.width, image.height);
                                     surface.DrawBitmap(
-                                        &self.images[&group.block],
+                                        &bitmap,
                                         Some(&area),
                                         1.,
                                         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
                                         None,
                                     );
+                                } else {
+                                    surface.DrawTextLayout(
+                                        point(group.x, y),
+                                        &image.fallback.layout,
+                                        &muted,
+                                        D2D1_DRAW_TEXT_OPTIONS_NONE,
+                                    );
                                 }
-                            }
+                            },
                         }
                     }
                     let max_x = group.maximum_horizontal();
@@ -298,8 +322,12 @@ impl Renderer {
     }
 }
 
-fn bitmap(surface: &ID2D1RenderTarget, image: &RgbaImage) -> Result<ID2D1Bitmap> {
-    let mut bgra = image.as_raw().clone();
+fn bitmap(surface: &ID2D1RenderTarget, image: RgbaImage) -> Result<ID2D1Bitmap> {
+    let size = D2D_SIZE_U {
+        width: image.width(),
+        height: image.height(),
+    };
+    let mut bgra = image.into_raw();
     for pixel in bgra.chunks_exact_mut(4) {
         pixel.swap(0, 2);
         let alpha = pixel[3] as u32;
@@ -307,10 +335,6 @@ fn bitmap(surface: &ID2D1RenderTarget, image: &RgbaImage) -> Result<ID2D1Bitmap>
             *value = ((*value as u32 * alpha + 127) / 255) as u8;
         }
     }
-    let size = D2D_SIZE_U {
-        width: image.width(),
-        height: image.height(),
-    };
     let props = D2D1_BITMAP_PROPERTIES {
         pixelFormat: D2D1_PIXEL_FORMAT {
             format: DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -319,7 +343,7 @@ fn bitmap(surface: &ID2D1RenderTarget, image: &RgbaImage) -> Result<ID2D1Bitmap>
         dpiX: 96.,
         dpiY: 96.,
     };
-    unsafe { surface.CreateBitmap(size, Some(bgra.as_ptr().cast()), image.width() * 4, &props) }
+    unsafe { surface.CreateBitmap(size, Some(bgra.as_ptr().cast()), size.width * 4, &props) }
 }
 
 fn highlight(
@@ -418,7 +442,8 @@ enum Item {
 }
 
 struct Picture {
-    data: RgbaImage,
+    path: Arc<PathBuf>,
+    fallback: TextRun,
     width: f32,
     height: f32,
 }
@@ -492,6 +517,7 @@ impl Page {
         };
         let body_size = options.font_size;
         let mut formats = HashMap::new();
+        let mut image_sources = HashMap::new();
         for (block_index, block) in document.blocks.iter().enumerate() {
             if block_index > 0 && block.indent == 0 && block.quote == 0 {
                 if let Body::Heading(level, _) = block.body {
@@ -744,32 +770,60 @@ impl Page {
                     group.items.push(Item::Text(run));
                 }
                 Body::Image { target, alt } => {
-                    if let Some(data) = source.and_then(|path| load_image(path, target)) {
-                        let scale = (width / data.width() as f32)
-                            .min(600. / data.height() as f32)
+                    let metadata = source
+                        .and_then(|document| image_path(document, target))
+                        .and_then(|path| {
+                            if image_sources.len() == IMAGE_SOURCE_LIMIT
+                                && !image_sources.contains_key(&path)
+                            {
+                                return None;
+                            }
+                            image_sources
+                                .entry(path)
+                                .or_insert_with_key(|path| {
+                                    let file = files::open_bounded(path, IMAGE_INPUT_LIMIT).ok()?;
+                                    let size = ImageReader::new(BufReader::new(file))
+                                        .with_guessed_format()
+                                        .ok()?
+                                        .into_dimensions()
+                                        .ok()?;
+                                    if size.0 == 0
+                                        || size.1 == 0
+                                        || size.0 > IMAGE_DIMENSION_LIMIT
+                                        || size.1 > IMAGE_DIMENSION_LIMIT
+                                    {
+                                        return None;
+                                    }
+                                    Some((Arc::new(path.clone()), size))
+                                })
+                                .clone()
+                        });
+                    let fallback = builder.text(
+                        &[span(format!("[图片] {alt}"))],
+                        0.,
+                        0.,
+                        width,
+                        body_size,
+                        regular,
+                        true,
+                        false,
+                        TableAlignment::None,
+                    )?;
+                    if let Some((path, (pixel_width, pixel_height))) = metadata {
+                        let scale = (width / pixel_width as f32)
+                            .min(600. / pixel_height as f32)
                             .min(1.);
-                        group.height = data.height() as f32 * scale;
+                        let height = pixel_height as f32 * scale;
+                        group.height = height.max(fallback.height);
                         group.items.push(Item::Image(Picture {
-                            width: data.width() as f32 * scale,
-                            height: group.height,
-                            data,
+                            width: pixel_width as f32 * scale,
+                            height,
+                            path,
+                            fallback,
                         }));
-                        builder.contents.extend(alt.encode_utf16());
                     } else {
-                        let fallback = format!("[图片] {alt}");
-                        let run = builder.text(
-                            &[span(fallback)],
-                            0.,
-                            0.,
-                            width,
-                            body_size,
-                            regular,
-                            true,
-                            false,
-                            TableAlignment::None,
-                        )?;
-                        group.height = run.height;
-                        group.items.push(Item::Text(run));
+                        group.height = fallback.height;
+                        group.items.push(Item::Text(fallback));
                     }
                 }
             }
@@ -1254,7 +1308,7 @@ mod code_tests {
     }
 }
 
-fn load_image(source: &Path, target: &str) -> Option<RgbaImage> {
+fn image_path(source: &Path, target: &str) -> Option<PathBuf> {
     let path = percent_decode_str(target).decode_utf8().ok()?;
     if path.contains(':') || path.contains(['?', '#', '\0']) {
         return None;
@@ -1267,15 +1321,31 @@ fn load_image(source: &Path, target: &str) -> Option<RgbaImage> {
     {
         return None;
     }
-    let full = source.parent()?.join(relative);
-    let bytes = files::read_bounded(&full, 16 * 1024 * 1024).ok()?;
-    let mut reader = ImageReader::new(Cursor::new(bytes))
+    Some(source.parent()?.join(relative))
+}
+
+fn image_reader(path: &Path) -> Option<ImageReader<Cursor<Vec<u8>>>> {
+    let bytes = files::read_bounded(path, IMAGE_INPUT_LIMIT).ok()?;
+    ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
-        .ok()?;
+        .ok()
+}
+
+fn load_image(path: &Path) -> Option<RgbaImage> {
+    let mut reader = image_reader(path)?;
     let mut limits = Limits::default();
-    limits.max_image_width = Some(4096);
-    limits.max_image_height = Some(4096);
+    limits.max_image_width = Some(IMAGE_DIMENSION_LIMIT);
+    limits.max_image_height = Some(IMAGE_DIMENSION_LIMIT);
     limits.max_alloc = Some(64 * 1024 * 1024);
     reader.limits(limits);
-    Some(reader.decode().ok()?.into_rgba8())
+    let image = reader.decode().ok()?;
+    if image.width() > IMAGE_BITMAP_DIMENSION || image.height() > IMAGE_BITMAP_DIMENSION {
+        Some(
+            image
+                .thumbnail(IMAGE_BITMAP_DIMENSION, IMAGE_BITMAP_DIMENSION)
+                .into_rgba8(),
+        )
+    } else {
+        Some(image.into_rgba8())
+    }
 }
