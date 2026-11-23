@@ -10,11 +10,17 @@ on:
 permissions:
   contents: read
 
+env:
+  VERSION_BASE_COMMIT: 'b18c680d4565bd1a9934378e19e663fd10a020bc'
+  VERSION_BASE_PATCH: '3'
+
 jobs:
   build:
     name: Verify Folio
     runs-on: windows-2025
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     defaults:
       run:
         shell: powershell
@@ -28,6 +34,33 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Stamp the build version
+        id: version
+        run: |
+          git merge-base --is-ancestor $env:VERSION_BASE_COMMIT HEAD
+          $ancestorExit = $LASTEXITCODE
+          if ($ancestorExit -ne 0) { exit $ancestorExit }
+          $distance = git rev-list --first-parent --count ($env:VERSION_BASE_COMMIT + '..HEAD')
+          $countExit = $LASTEXITCODE
+          if ($countExit -ne 0) { exit $countExit }
+          $serial = [long]$env:VERSION_BASE_PATCH + [long]$distance
+          $major = [long][Math]::Floor($serial / 16777216)
+          if ($major -gt 255) { throw 'Folio version exceeds the Windows Installer version range.' }
+          $minor = [long][Math]::Floor($serial / 65536) % 256
+          $patch = $serial % 65536
+          $version = '{0}.{1}.{2}' -f $major, $minor, $patch
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          $pattern = '(?m)^name = "folio"\r?\nversion = "([0-9.]+)"'
+          foreach ($relativePath in @('src/rust/Cargo.toml', 'src/rust/Cargo.lock')) {
+            $path = Join-Path $env:GITHUB_WORKSPACE $relativePath
+            $text = [IO.File]::ReadAllText($path, $utf8)
+            $entries = [regex]::Matches($text, $pattern)
+            if ($entries.Count -ne 1) { throw ('Expected one Folio package version in ' + $relativePath) }
+            $value = $entries[0].Groups[1]
+            $stamped = $text.Remove($value.Index, $value.Length).Insert($value.Index, $version)
+            [IO.File]::WriteAllText($path, $stamped, $utf8)
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, ('version=' + $version + "`n"), $utf8)
       - name: Install Rust toolchain
         run: rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal
       - name: Test Folio
@@ -52,10 +85,94 @@ jobs:
           & (Join-Path $baseline 'scripts\Build-Installer.ps1')
       - name: Verify the MSI and installation lifecycle
         run: .\scripts\Test-Installer.ps1 -PreviousPackage 'work\upgrade-baseline\generated\Folio-0.0.2-win-x64.msi'
-      - name: Upload the MSI
+      - name: Generate the MSI checksum
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $asset = 'Folio-' + $env:VERSION + '-win-x64.msi'
+          $directory = Join-Path $env:GITHUB_WORKSPACE 'generated'
+          $path = Join-Path $directory $asset
+          $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          $checksum = Join-Path $directory 'SHA256SUMS.txt'
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          [IO.File]::WriteAllText($checksum, ($hash + '  ' + $asset + "`n"), $utf8)
+      - name: Upload release files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          path: generated/Folio-*-win-x64.msi
+          name: release-files
+          path: |
+            generated/Folio-${{ steps.version.outputs.version }}-win-x64.msi
+            generated/SHA256SUMS.txt
           if-no-files-found: error
-          archive: false
           retention-days: 30
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    if: >-
+      vars.AUTO_PUBLISH_RELEASES == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: publish-releases
+      queue: max
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Publish verified build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag=v"$VERSION"
+          asset=Folio-"$VERSION"-win-x64.msi
+          title="Folio $VERSION"
+          notes="GitHub Actions 已验证安装、升级和卸载。[构建记录]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          work_dir=$(mktemp -d "$RUNNER_TEMP/release.XXXXXX")
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name release-files --dir "$work_dir"
+          cd -- "$work_dir"
+          test -s "$asset"
+          if [[ "$(cat SHA256SUMS.txt)" != "$(sha256sum -- "$asset")" ]]; then
+            echo "The build asset does not match SHA256SUMS.txt." >&2
+            exit 1
+          fi
+
+          tag_commit=$(gh api graphql \
+            -f 'query=query($owner:String!,$name:String!,$ref:String!){repository(owner:$owner,name:$name){ref(qualifiedName:$ref){target{oid ... on Tag{target{oid}}}}}}' \
+            -f owner="${GITHUB_REPOSITORY%%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
+            -f ref="refs/tags/$tag" --jq '.data.repository.ref.target | .target.oid // .oid // empty')
+          if [[ -n "$tag_commit" && "$tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "Tag $tag already points to a different commit." >&2
+            exit 1
+          fi
+
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          existing=$(jq -c --arg tag "$tag" '[.[][] | select(.tag_name == $tag)] | first // empty' <<< "$releases")
+          if [[ -n "$existing" ]] && jq -e '.draft == false' <<< "$existing" >/dev/null; then
+            test "$tag_commit" = "$GITHUB_SHA"
+            jq -e --arg asset "$asset" --argjson prerelease false '
+              .prerelease == $prerelease and
+              ([.assets[] | select(.state == "uploaded" and .size > 0) | .name] | sort) ==
+                ([$asset, "SHA256SUMS.txt"] | sort)
+            ' <<< "$existing" >/dev/null
+            echo "Release $tag is already published for this commit."
+            exit 0
+          fi
+
+          latest_version=$(jq -r '.[][] | select(.draft == false and .prerelease == false) | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) | ltrimstr("v")' <<< "$releases")
+          newest=$(printf '%s\n%s\n' "$VERSION" "$latest_version" | sort -V | tail -n 1)
+          release_flags=(--latest=false)
+          if [[ "$newest" == "$VERSION" ]]; then release_flags=(--latest); fi
+          if [[ -n "$existing" ]]; then
+            test "$(jq -r '.target_commitish' <<< "$existing")" = "$GITHUB_SHA"
+            gh release upload "$tag" "$asset" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --title "$title" --notes "$notes" "${release_flags[@]}"
+          else
+            gh release create "$tag" "$asset" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title "$title" --notes "$notes" "${release_flags[@]}"
+          fi
