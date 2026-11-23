@@ -2,13 +2,10 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
-use std::process::Command;
 
 fn main() -> io::Result<()> {
     println!("cargo:rerun-if-changed=assets/app.ico");
     println!("cargo:rerun-if-changed=assets/folio.manifest");
-    println!("cargo:rerun-if-env-changed=FOLIO_WINDRES");
-    let target = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
     let out = PathBuf::from(
         env::var_os("OUT_DIR").ok_or_else(|| io::Error::other("OUT_DIR is missing"))?,
     );
@@ -25,25 +22,7 @@ fn main() -> io::Result<()> {
     );
     entry(&mut records, 24, 1, manifest.as_bytes());
     fs::write(&resource, records)?;
-    let linked = if target == "gnu" {
-        let tool = env::var_os("FOLIO_WINDRES").unwrap_or_else(|| "windres.exe".into());
-        let file = out.join("folio-resources.o");
-        let status = Command::new(tool)
-            .args(["-J", "res", "-O", "coff", "-F", "pe-x86-64", "-i"])
-            .arg(&resource)
-            .arg("-o")
-            .arg(&file)
-            .status()?;
-        if !status.success() {
-            return Err(io::Error::other(
-                "windres could not compile Folio resources",
-            ));
-        }
-        file
-    } else {
-        resource
-    };
-    println!("cargo:rustc-link-arg-bins={}", linked.display());
+    println!("cargo:rustc-link-arg-bins={}", resource.display());
     Ok(())
 }
 
