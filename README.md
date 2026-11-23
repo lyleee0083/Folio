@@ -2,23 +2,17 @@
 
 Folio 是面向 Windows 10／11 x64 的原生 GFM Markdown 预览与源码编辑工具，使用 Rust、windows-rs、Win32、Direct2D 和 DirectWrite。
 
-## 下载
+## 功能
 
-在 [Releases](https://github.com/lyleee0083/Folio/releases) 下载 Windows x64 MSI 安装包，并使用同版本的 SHA-256 校验文件核对安装包。
+- **Preview** 提供 GFM Markdown 预览。预览仅解码可见区域的图片，并限制图像缓存大小。
+- **Raw** 提供 Markdown 源码编辑、行号和语法着色。
+- 相对 Markdown 链接支持跳转到目标文件的标题。
 
-## GitHub Actions 构建
+## 快速开始
 
-1. 打开 [Build Folio Installer](https://github.com/lyleee0083/Folio/actions/workflows/build-installer.yml)。
-2. 点击 **Run workflow**，选择 `main`，然后启动构建。
-3. 构建成功后打开该次运行，在 **Artifacts** 下载 `Folio-<版本>-win-x64.msi`。
-
-`main` 分支推送和以 `main` 为目标的 Pull Request 也会触发工作流。工作流使用 Windows x64 MSVC 工具链编译并测试 Folio，使用 WiX 生成 MSI，并验证按用户安装、从 `0.0.2` 升级和卸载。Actions 产物保留 30 天。
-
-## 使用说明
-
-### 预览与编辑
-
-使用 **Preview** 阅读 GFM 文档，使用 **Raw** 编辑 Markdown 源码。预览仅解码可见区域的图片，并限制图像缓存大小。相对 Markdown 链接支持跳转到目标文件的标题。
+1. 在 [Releases](https://github.com/lyleee0083/Folio/releases) 下载 Windows x64 MSI，并使用同版本的 SHA-256 校验文件核对安装包。
+2. 运行 MSI 并按提示完成安装，然后启动 Folio。
+3. 打开 Markdown 文件。使用 **Preview** 阅读，或切换到 **Raw** 编辑并保存。
 
 ### 保存与恢复
 
@@ -26,7 +20,15 @@ Folio 是面向 Windows 10／11 x64 的原生 GFM Markdown 预览与源码编辑
 
 保存源码前，Folio 会检查原文件并暂存恢复副本。系统中断后如需找回原内容，可在原文件所在目录查看 `.folio-*.recovery.bak`。
 
-## 源码结构
+## 构建与测试
+
+1. 打开 [Build Folio Installer](https://github.com/lyleee0083/Folio/actions/workflows/build-installer.yml)。
+2. 点击 **Run workflow**，选择 `main`，然后启动构建。
+3. 构建成功后打开该次运行，在 **Artifacts** 下载 `Folio-<版本>-win-x64.msi`。
+
+`main` 分支推送和以 `main` 为目标的 Pull Request 也会触发工作流。工作流使用 Windows x64 MSVC 工具链编译并测试 Folio，使用 WiX 生成 MSI，并验证按用户安装、从 `0.0.2` 升级和卸载。Actions 产物保留 30 天。
+
+## 仓库结构
 
 | 路径 | 用途 |
 | --- | --- |
@@ -37,6 +39,10 @@ Folio 是面向 Windows 10／11 x64 的原生 GFM Markdown 预览与源码编辑
 | [`src/rust/assets/`](src/rust/assets)、[`build.rs`](src/rust/build.rs) | 程序图标、Windows 清单和资源嵌入 |
 | [`src/installer/`](src/installer)、[`scripts/`](scripts) | MSI 定义和构建脚本 |
 | [`.github/workflows/`](.github/workflows) | 验证主分支和 PR 的 Windows x64 构建流程 |
+
+## 版本发布
+
+在 [Releases](https://github.com/lyleee0083/Folio/releases) 下载 Windows x64 MSI 安装包，并使用同版本的 SHA-256 校验文件核对安装包。
 
 ## 许可与声明
 
