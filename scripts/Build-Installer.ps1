@@ -21,20 +21,13 @@ New-Item -ItemType Directory -Path $generated,$build -Force | Out-Null
 $name = 'Folio-' + $version + '-win-x64.msi'
 $candidate = Join-Path $build $name
 $destination = Join-Path $generated $name
-$previousDotnetRoot = $env:DOTNET_ROOT
 $previousRustFlags = $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS
 try {
     $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = '-C target-feature=+crt-static'
-    & (Join-Path $PSScriptRoot 'Build-Native.ps1') -Target x86_64-pc-windows-msvc -DestinationExecutable $executable
+    & (Join-Path $PSScriptRoot 'Build-Native.ps1') -DestinationExecutable $executable
 
-    $localDotnet = Join-Path $root 'work\tools\dotnet'
-    $dotnet = Join-Path $localDotnet 'dotnet.exe'
-    if (Test-Path -LiteralPath $dotnet -PathType Leaf) {
-        $env:DOTNET_ROOT = $localDotnet
-    } elseif ($RestoreTools) {
-        $dotnet = (Get-Command dotnet.exe -ErrorAction Stop).Source
-    }
     if ($RestoreTools -and -not (Test-Path -LiteralPath $wix -PathType Leaf)) {
+        $dotnet = (Get-Command dotnet.exe -ErrorAction Stop).Source
         & $dotnet tool install wix --version 5.0.2 --tool-path (Split-Path -Parent $wix) --allow-roll-forward `
             --add-source https://api.nuget.org/v3/index.json
         if ($LASTEXITCODE -ne 0) { throw 'Could not restore the WiX tool.' }
@@ -56,7 +49,6 @@ try {
         -intermediatefolder (Join-Path $build 'obj') -out $candidate
     if ($LASTEXITCODE -ne 0) { throw 'WiX could not build the Folio installer.' }
 } finally {
-    $env:DOTNET_ROOT = $previousDotnetRoot
     $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = $previousRustFlags
 }
 
