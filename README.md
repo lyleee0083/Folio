@@ -24,7 +24,7 @@ Folio 是面向 Windows 10／11 x64 的原生 GFM Markdown 预览与源码编辑
 
 1. 打开 [Build Folio Installer](https://github.com/lyleee0083/Folio/actions/workflows/build-installer.yml)。
 2. 点击 **Run workflow**，选择 `main`，然后启动构建。
-3. 构建成功后打开该次运行，在 **Artifacts** 下载 `Folio-<版本>-win-x64.msi`。
+3. 构建成功后打开该次运行，在 **Artifacts** 下载 `release-files`，其中包含 Windows x64 MSI 和 `SHA256SUMS.txt`。
 
 `main` 分支推送和以 `main` 为目标的 Pull Request 也会触发工作流。工作流使用 Windows x64 MSVC 工具链编译并测试 Folio，使用 WiX 生成 MSI，并验证按用户安装、从 `0.0.2` 升级和卸载。Actions 产物保留 30 天。
 
@@ -43,6 +43,8 @@ Folio 是面向 Windows 10／11 x64 的原生 GFM Markdown 预览与源码编辑
 ## 版本发布
 
 在 [Releases](https://github.com/lyleee0083/Folio/releases) 下载 Windows x64 MSI 安装包，并使用同版本的 SHA-256 校验文件核对安装包。
+
+[工作流](.github/workflows/build-installer.yml) 根据 `main` 的提交历史递增安装包版本。`main` 构建和测试通过后自动发布，同一提交重跑沿用原版本。
 
 ## 许可与声明
 
