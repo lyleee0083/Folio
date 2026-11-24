@@ -18,7 +18,7 @@ $executable = Join-Path $build 'Folio.exe'
 
 $generated = Join-Path $root 'generated'
 New-Item -ItemType Directory -Path $generated,$build -Force | Out-Null
-$name = 'Folio-' + $version + '-win-x64.msi'
+$name = 'Folio-win-x64-' + $version + '.msi'
 $candidate = Join-Path $build $name
 $destination = Join-Path $generated $name
 $previousRustFlags = $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS

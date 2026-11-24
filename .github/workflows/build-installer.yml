@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       version: ${{ steps.version.outputs.version }}
+      package_name: ${{ steps.version.outputs.package_name }}
     defaults:
       run:
         shell: powershell
@@ -61,6 +62,7 @@ jobs:
             [IO.File]::WriteAllText($path, $stamped, $utf8)
           }
           [IO.File]::AppendAllText($env:GITHUB_OUTPUT, ('version=' + $version + "`n"), $utf8)
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, ('package_name=Folio-win-x64-' + $version + "`n"), $utf8)
       - name: Install Rust toolchain
         run: rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal
       - name: Test Folio
@@ -87,9 +89,9 @@ jobs:
         run: .\scripts\Test-Installer.ps1 -PreviousPackage 'work\upgrade-baseline\generated\Folio-0.0.2-win-x64.msi'
       - name: Generate the MSI checksum
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          PACKAGE_NAME: ${{ steps.version.outputs.package_name }}
         run: |
-          $asset = 'Folio-' + $env:VERSION + '-win-x64.msi'
+          $asset = $env:PACKAGE_NAME + '.msi'
           $directory = Join-Path $env:GITHUB_WORKSPACE 'generated'
           $path = Join-Path $directory $asset
           $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -99,9 +101,9 @@ jobs:
       - name: Upload release files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: release-files
+          name: ${{ steps.version.outputs.package_name }}
           path: |
-            generated/Folio-${{ steps.version.outputs.version }}-win-x64.msi
+            generated/${{ steps.version.outputs.package_name }}.msi
             generated/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
@@ -127,14 +129,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.build.outputs.version }}
+          PACKAGE_NAME: ${{ needs.build.outputs.package_name }}
         run: |
           set -euo pipefail
           tag=v"$VERSION"
-          asset=Folio-"$VERSION"-win-x64.msi
+          asset="$PACKAGE_NAME.msi"
           title="Folio $VERSION"
           notes="GitHub Actions 已验证安装、升级和卸载。[构建记录]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
           work_dir=$(mktemp -d "$RUNNER_TEMP/release.XXXXXX")
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name release-files --dir "$work_dir"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$PACKAGE_NAME" --dir "$work_dir"
           cd -- "$work_dir"
           test -s "$asset"
           if [[ "$(cat SHA256SUMS.txt)" != "$(sha256sum -- "$asset")" ]]; then

@@ -7,7 +7,7 @@ $manifest = Join-Path $root 'src\rust\Cargo.toml'
 $versionLine = Select-String -LiteralPath $manifest -Pattern '^version\s*=\s*"(\d+\.\d+\.\d+)"\s*$' | Select-Object -First 1
 if ($null -eq $versionLine) { throw 'Missing Folio version.' }
 $version = $versionLine.Matches[0].Groups[1].Value
-if (-not $Package) { $Package = Join-Path $root ('generated\Folio-' + $version + '-win-x64.msi') }
+if (-not $Package) { $Package = Join-Path $root ('generated\Folio-win-x64-' + $version + '.msi') }
 $msi = (Resolve-Path -LiteralPath $Package).ProviderPath
 
 $installer = New-Object -ComObject WindowsInstaller.Installer
