@@ -20,3 +20,8 @@
 - Reuse `scripts/Build-Native.ps1`, `scripts/Build-Installer.ps1`, and `scripts/Test-Installer.ps1`. Keep PowerShell scripts compatible with Windows PowerShell 5.1 and PowerShell 7. Use the Windows x64 MSVC target for Rust verification.
 - Run the installer checks when changing install, upgrade, or uninstall behavior. The `Verify Folio` check covers pull requests to `main`.
 - Deliver MSI packages and checksums through Actions or Releases. Check the workflow's automatic release conditions and the task authorization before triggering a main-branch or manual build.
+
+## Versioned deliverables
+
+- When a change affects a versioned deliverable, build and deliver the latest authorized repository state. Advance the project release version and use it consistently in the output filename, archive directory, package metadata and the executable or application's reported version where applicable.
+- Record upstream versions and revisions separately. Check the version and checksum in the final artifact. Follow the authorized scope for publishing and deployment.
