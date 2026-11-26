@@ -98,13 +98,18 @@ jobs:
           $checksum = Join-Path $directory 'SHA256SUMS.txt'
           $utf8 = New-Object System.Text.UTF8Encoding($false)
           [IO.File]::WriteAllText($checksum, ($hash + '  ' + $asset + "`n"), $utf8)
-      - name: Upload release files
+      - name: Upload deliverable
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: ${{ steps.version.outputs.package_name }}
-          path: |
-            generated/${{ steps.version.outputs.package_name }}.msi
-            generated/SHA256SUMS.txt
+          path: generated/${{ steps.version.outputs.package_name }}.msi
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          path: generated/SHA256SUMS.txt
+          archive: false
           if-no-files-found: error
           retention-days: 30
 
@@ -124,6 +129,16 @@ jobs:
       actions: read
       contents: write
     steps:
+      - name: Download verified deliverable
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.package_name }}.msi
+          path: ${{ runner.temp }}/release-files
+      - name: Download checksums
+        uses: actions/download-artifact@v8
+        with:
+          name: SHA256SUMS.txt
+          path: ${{ runner.temp }}/release-files
       - name: Publish verified build
         shell: bash
         env:
@@ -136,9 +151,7 @@ jobs:
           asset="$PACKAGE_NAME.msi"
           title="Folio $VERSION"
           notes="GitHub Actions 已验证安装、升级和卸载。[构建记录]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
-          work_dir=$(mktemp -d "$RUNNER_TEMP/release.XXXXXX")
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$PACKAGE_NAME" --dir "$work_dir"
-          cd -- "$work_dir"
+          cd -- "$RUNNER_TEMP/release-files"
           test -s "$asset"
           if [[ "$(cat SHA256SUMS.txt)" != "$(sha256sum -- "$asset")" ]]; then
             echo "The build asset does not match SHA256SUMS.txt." >&2
