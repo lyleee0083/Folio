@@ -44,7 +44,7 @@ Folio 是面向 Windows 10／11 x64 的原生 GFM Markdown 预览与源码编辑
 
 在 [Releases](https://github.com/lyleee0083/Folio/releases) 下载 `Folio-win-x64-x.x.x.msi`，并使用同版本的 SHA-256 校验文件核对安装包。
 
-[工作流](.github/workflows/build-installer.yml) 根据 `main` 的提交历史递增安装包版本。`main` 构建和测试通过后自动发布，同一提交重跑沿用原版本。
+[工作流](.github/workflows/build-installer.yml) 根据 `main` 的提交历史递增版本号。安装包文件名、MSI 产品版本和 `Folio.exe` 的文件版本及产品版本使用同一版本号。`main` 构建和测试通过后自动发布，同一提交重跑沿用原版本。
 
 ## 许可与声明
 

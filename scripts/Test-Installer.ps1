@@ -45,6 +45,10 @@ if ($extractor.ExitCode -ne 0) { throw ('MSI administrative extraction failed. S
 $programs = @(Get-ChildItem -LiteralPath $image -Recurse -File -Filter Folio.exe)
 if ($programs.Count -ne 1) { throw 'Expected exactly one Folio.exe in the MSI image.' }
 $program = $programs[0]
+$programVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($program.FullName)
+if ($programVersion.FileVersion -cne $version -or $programVersion.ProductVersion -cne $version) {
+    throw "The Folio.exe file and product versions must both match the MSI version $version."
+}
 if (-not (Test-Path -LiteralPath (Join-Path $program.DirectoryName 'LICENSE') -PathType Leaf)) {
     throw 'Application license is missing from the MSI image.'
 }
@@ -61,7 +65,7 @@ try {
     if (-not (Test-Path -LiteralPath $state -PathType Leaf)) {
         throw 'The packaged Folio executable did not initialize the isolated profile.'
     }
-    Write-Output ('Verified MSI version ' + $version + ', x64 payload and isolated application startup.')
+    Write-Output ('Verified MSI and Folio.exe version ' + $version + ', x64 payload and isolated application startup.')
 } finally {
     $env:APPDATA = $previousAppData
     if ($null -ne $process -and -not $process.HasExited) {

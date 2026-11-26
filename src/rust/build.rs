@@ -21,9 +21,68 @@ fn main() -> io::Result<()> {
         concat!(env!("CARGO_PKG_VERSION"), ".0"),
     );
     entry(&mut records, 24, 1, manifest.as_bytes());
+    entry(&mut records, 16, 1, &version_info());
     fs::write(&resource, records)?;
     println!("cargo:rustc-link-arg-bins={}", resource.display());
     Ok(())
+}
+
+fn version_info() -> Vec<u8> {
+    let major: u16 = env!("CARGO_PKG_VERSION_MAJOR").parse().expect("Invalid major version");
+    let minor: u16 = env!("CARGO_PKG_VERSION_MINOR").parse().expect("Invalid minor version");
+    let patch: u16 = env!("CARGO_PKG_VERSION_PATCH").parse().expect("Invalid patch version");
+    let version_ms = (u32::from(major) << 16) | u32::from(minor);
+    let version_ls = u32::from(patch) << 16;
+
+    // VS_FIXEDFILEINFO stores file and product versions as pairs of DWORDs.
+    let fixed: Vec<u8> = [
+        0xFEEF04BD, 0x00010000, version_ms, version_ls, version_ms, version_ls,
+        0x3F, 0, 0x00040004, 1, 0, 0, 0,
+    ]
+    .into_iter()
+    .flat_map(u32::to_le_bytes)
+    .collect();
+
+    let version: Vec<u8> = env!("CARGO_PKG_VERSION")
+        .encode_utf16()
+        .chain([0])
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let mut strings = Vec::new();
+    for key in ["FileVersion", "ProductVersion"] {
+        version_block(&mut strings, key, true, &version, &[]);
+    }
+    let mut table = Vec::new();
+    version_block(&mut table, "040904B0", true, &[], &strings);
+
+    let mut translation = Vec::new();
+    // English (United States), Unicode.
+    version_block(&mut translation, "Translation", false, &[0x09, 0x04, 0xB0, 0x04], &[]);
+    let mut children = Vec::new();
+    version_block(&mut children, "StringFileInfo", true, &[], &table);
+    version_block(&mut children, "VarFileInfo", true, &[], &translation);
+
+    let mut root = Vec::new();
+    version_block(&mut root, "VS_VERSION_INFO", false, &fixed, &children);
+    root
+}
+
+fn version_block(output: &mut Vec<u8>, key: &str, is_text: bool, value: &[u8], children: &[u8]) {
+    output.resize((output.len() + 3) & !3, 0);
+    let start = output.len();
+    let value_length = if is_text { value.len() / 2 } else { value.len() };
+    output.extend(0u16.to_le_bytes());
+    output.extend((value_length as u16).to_le_bytes());
+    output.extend(u16::from(is_text).to_le_bytes());
+    output.extend(key.encode_utf16().chain([0]).flat_map(u16::to_le_bytes));
+    output.resize((output.len() + 3) & !3, 0);
+    output.extend(value);
+    if !children.is_empty() {
+        output.resize((output.len() + 3) & !3, 0);
+        output.extend(children);
+    }
+    let length = (output.len() - start) as u16;
+    output[start..start + 2].copy_from_slice(&length.to_le_bytes());
 }
 
 fn icons(contents: &[u8], output: &mut Vec<u8>) -> io::Result<Vec<u8>> {
