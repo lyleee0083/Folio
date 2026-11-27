@@ -37,7 +37,7 @@ These instructions apply to all agents working in this repository.
 
 ## Build and Verification
 
-- Use `windows-2025` for the Folio Windows x64 MSVC build, WiX MSI packaging, and Windows installation lifecycle checks.
+- Use `windows-latest` for the Folio Windows x64 MSVC build and WiX MSI packaging. The current WiX toolchain generates the MSI through native Windows Installer APIs and requires Windows. Run installation, upgrade, and uninstall checks with `msiexec.exe` on the same runner.
 - Target Windows 10 and 11 x64. The Rust application is in `src/rust/`, WiX sources are in `src/installer/`, and imported components are documented in `docs/THIRD-PARTY-NOTICES.md`.
 - Maintain and reuse `scripts/Build-Native.ps1`, `scripts/Build-Installer.ps1`, and `scripts/Test-Installer.ps1` in the GitHub Actions workflow. Keep PowerShell scripts compatible with Windows PowerShell 5.1 and PowerShell 7, targeting Windows x64 MSVC for Rust builds and tests.
 - Verify Rust builds, tests, and install, upgrade, and uninstall checks exclusively through the `Verify Folio` GitHub Actions workflow (`.github/workflows/build-installer.yml`) on pull requests to `main` or authorized workflow runs.
